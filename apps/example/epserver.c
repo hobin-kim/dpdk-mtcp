@@ -31,8 +31,7 @@
 
 #define MAX_EVENTS (MAX_FLOW_NUM * 3)
 
-#define HTTP_HEADER_LEN 1024
-#define URL_LEN 128
+#define TCP_LEN 1024
 
 #define MAX_FILES 30
 
@@ -57,34 +56,10 @@
 #define MAX_CPUS		16
 #endif
 /*----------------------------------------------------------------------------*/
-struct file_cache
-{
-	char name[NAME_LIMIT];
-	char fullname[FULLNAME_LIMIT];
-	uint64_t size;
-	char *file;
-};
-/*----------------------------------------------------------------------------*/
-struct server_vars
-{
-	char request[HTTP_HEADER_LEN];
-	int recv_len;
-	int request_len;
-	long int total_read, total_sent;
-	uint8_t done;
-	uint8_t rspheader_sent;
-	uint8_t keep_alive;
-
-	int fidx;						// file cache index
-	char fname[NAME_LIMIT];				// file name
-	long int fsize;					// file size
-};
-/*----------------------------------------------------------------------------*/
 struct thread_context
 {
 	mctx_t mctx;
 	int ep;
-	struct server_vars *svars;
 };
 /*----------------------------------------------------------------------------*/
 static int num_cores;
@@ -94,189 +69,64 @@ static int done[MAX_CPUS];
 static char *conf_file = NULL;
 static int backlog = -1;
 /*----------------------------------------------------------------------------*/
-const char *www_main;
-static struct file_cache fcache[MAX_FILES];
-static int nfiles;
-/*----------------------------------------------------------------------------*/
 static int finished;
 /*----------------------------------------------------------------------------*/
-static char *
-StatusCodeToString(int scode)
-{
-	switch (scode) {
-		case 200:
-			return "OK";
-			break;
-
-		case 404:
-			return "Not Found";
-			break;
-	}
-
-	return NULL;
-}
-/*----------------------------------------------------------------------------*/
-void
-CleanServerVariable(struct server_vars *sv)
-{
-	sv->recv_len = 0;
-	sv->request_len = 0;
-	sv->total_read = 0;
-	sv->total_sent = 0;
-	sv->done = 0;
-	sv->rspheader_sent = 0;
-	sv->keep_alive = 0;
-}
-/*----------------------------------------------------------------------------*/
 void 
-CloseConnection(struct thread_context *ctx, int sockid, struct server_vars *sv)
+CloseConnection(struct thread_context *ctx, int sockid)
 {
 	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_DEL, sockid, NULL);
 	mtcp_close(ctx->mctx, sockid);
 }
 /*----------------------------------------------------------------------------*/
 static int 
-SendUntilAvailable(struct thread_context *ctx, int sockid, struct server_vars *sv)
+SendUntilAvailable(struct thread_context *ctx, int sockid, char *data)
 {
 	int ret;
 	int sent;
 	int len;
 
-	if (sv->done || !sv->rspheader_sent) {
-		return 0;
-	}
-
 	sent = 0;
 	ret = 1;
-	while (ret > 0) {
-		len = MIN(SNDBUF_SIZE, sv->fsize - sv->total_sent);
-		if (len <= 0) {
-			break;
-		}
-		ret = mtcp_write(ctx->mctx, sockid,  
-				fcache[sv->fidx].file + sv->total_sent, len);
-		if (ret < 0) {
-			TRACE_APP("Connection closed with client.\n");
-			break;
-		}
-		TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
-		sent += ret;
-		sv->total_sent += ret;
+
+	len = strlen(data);
+	if (len <= 0) {
+		TRACE_APP("Connection closed with client.\n");
 	}
-
-	if (sv->total_sent >= fcache[sv->fidx].size) {
-		struct mtcp_epoll_event ev;
-		sv->done = TRUE;
-		finished++;
-
-		if (sv->keep_alive) {
-			/* if keep-alive connection, wait for the incoming request */
-			ev.events = MTCP_EPOLLIN;
-			ev.data.sockid = sockid;
-			mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_MOD, sockid, &ev);
-
-			CleanServerVariable(sv);
-		} else {
-			/* else, close connection */
-			CloseConnection(ctx, sockid, sv);
-		}
+	ret = mtcp_write(ctx->mctx, sockid, data, len);
+	if (ret < 0) {
+		TRACE_APP("Connection closed with client.\n");
 	}
+	TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
+
+	struct mtcp_epoll_event ev;
+	finished++;
+	ev.events = MTCP_EPOLLIN;
+	ev.data.sockid = sockid;
+	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_MOD, sockid, &ev);
 
 	return sent;
 }
 /*----------------------------------------------------------------------------*/
 static int 
-HandleReadEvent(struct thread_context *ctx, int sockid, struct server_vars *sv)
+HandleReadEvent(struct thread_context *ctx, int sockid)
 {
 	struct mtcp_epoll_event ev;
-	char buf[HTTP_HEADER_LEN];
-	char url[URL_LEN];
-	char response[HTTP_HEADER_LEN];
-	int scode;						// status code
-	time_t t_now;
-	char t_str[128];
-	char keepalive_str[128];
+	char buf[TCP_LEN];
 	int rd;
-	int i;
-	int len;
-	int sent;
 
-	/* HTTP request handling */
-	rd = mtcp_read(ctx->mctx, sockid, buf, HTTP_HEADER_LEN);
+	/* TCP read */
+	rd = mtcp_read(ctx->mctx, sockid, buf, TCP_LEN);
 	if (rd <= 0) {
 		return rd;
 	}
-	memcpy(sv->request + sv->recv_len, 
-			(char *)buf, MIN(rd, HTTP_HEADER_LEN - sv->recv_len));
-	sv->recv_len += rd;
-	//sv->request[rd] = '\0';
-	//fprintf(stderr, "HTTP Request: \n%s", request);
-	sv->request_len = find_http_header(sv->request, sv->recv_len);
-	if (sv->request_len <= 0) {
-		TRACE_ERROR("Socket %d: Failed to parse HTTP request header.\n"
-				"read bytes: %d, recv_len: %d, "
-				"request_len: %d, strlen: %ld, request: \n%s\n", 
-				sockid, rd, sv->recv_len, 
-				sv->request_len, strlen(sv->request), sv->request);
-		return rd;
-	}
 
-	http_get_url(sv->request, sv->request_len, url, URL_LEN);
-	TRACE_APP("Socket %d URL: %s\n", sockid, url);
-	sprintf(sv->fname, "%s%s", www_main, url);
-	TRACE_APP("Socket %d File name: %s\n", sockid, sv->fname);
-
-	sv->keep_alive = FALSE;
-	if (http_header_str_val(sv->request, "Connection: ", 
-				strlen("Connection: "), keepalive_str, 128)) {	
-		if (strstr(keepalive_str, "Keep-Alive")) {
-			sv->keep_alive = TRUE;
-		} else if (strstr(keepalive_str, "Close")) {
-			sv->keep_alive = FALSE;
-		}
-	}
-
-	/* Find file in cache */
-	scode = 404;
-	for (i = 0; i < nfiles; i++) {
-		if (strcmp(sv->fname, fcache[i].fullname) == 0) {
-			sv->fsize = fcache[i].size;
-			sv->fidx = i;
-			scode = 200;
-			break;
-		}
-	}
-	TRACE_APP("Socket %d File size: %ld (%ldMB)\n", 
-			sockid, sv->fsize, sv->fsize / 1024 / 1024);
-
-	/* Response header handling */
-	time(&t_now);
-	strftime(t_str, 128, "%a, %d %b %Y %X GMT", gmtime(&t_now));
-	if (sv->keep_alive)
-		sprintf(keepalive_str, "Keep-Alive");
-	else
-		sprintf(keepalive_str, "Close");
-
-	sprintf(response, "HTTP/1.1 %d %s\r\n"
-			"Date: %s\r\n"
-			"Server: Webserver on Middlebox TCP (Ubuntu)\r\n"
-			"Content-Length: %ld\r\n"
-			"Connection: %s\r\n\r\n", 
-			scode, StatusCodeToString(scode), t_str, sv->fsize, keepalive_str);
-	len = strlen(response);
-	TRACE_APP("Socket %d HTTP Response: \n%s", sockid, response);
-	sent = mtcp_write(ctx->mctx, sockid, response, len);
-	TRACE_APP("Socket %d Sent response header: try: %d, sent: %d\n", 
-			sockid, len, sent);
-	assert(sent == len);
-	sv->rspheader_sent = TRUE;
-
+    /* hobin not understand*/
 	ev.events = MTCP_EPOLLIN | MTCP_EPOLLOUT;
 	ev.data.sockid = sockid;
 	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_MOD, sockid, &ev);
 
-	SendUntilAvailable(ctx, sockid, sv);
-
+	SendUntilAvailable(ctx, sockid, buf);
+	
 	return rd;
 }
 /*----------------------------------------------------------------------------*/
@@ -284,7 +134,6 @@ int
 AcceptConnection(struct thread_context *ctx, int listener)
 {
 	mctx_t mctx = ctx->mctx;
-	struct server_vars *sv;
 	struct mtcp_epoll_event ev;
 	int c;
 
@@ -296,8 +145,6 @@ AcceptConnection(struct thread_context *ctx, int listener)
 			return -1;
 		}
 
-		sv = &ctx->svars[c];
-		CleanServerVariable(sv);
 		TRACE_APP("New connection %d accepted.\n", c);
 		ev.events = MTCP_EPOLLIN;
 		ev.data.sockid = c;
@@ -319,7 +166,6 @@ struct thread_context *
 InitializeServerThread(int core)
 {
 	struct thread_context *ctx;
-
 	/* affinitize application thread to a CPU core */
 #if HT_SUPPORT
 	mtcp_core_affinitize(core + (num_cores / 2));
@@ -344,20 +190,10 @@ InitializeServerThread(int core)
 	/* create epoll descriptor */
 	ctx->ep = mtcp_epoll_create(ctx->mctx, MAX_EVENTS);
 	if (ctx->ep < 0) {
-		mtcp_destroy_context(ctx->mctx);
-		free(ctx);
-		TRACE_ERROR("Failed to create epoll descriptor!\n");
-		return NULL;
-	}
-
-	/* allocate memory for server variables */
-	ctx->svars = (struct server_vars *)
-			calloc(MAX_FLOW_NUM, sizeof(struct server_vars));
-	if (!ctx->svars) {
 		mtcp_close(ctx->mctx, ctx->ep);
 		mtcp_destroy_context(ctx->mctx);
 		free(ctx);
-		TRACE_ERROR("Failed to create server_vars struct!\n");
+		TRACE_ERROR("Failed to create epoll descriptor!\n");
 		return NULL;
 	}
 
@@ -387,7 +223,7 @@ CreateListeningSocket(struct thread_context *ctx)
 	/* bind to port 80 */
 	saddr.sin_family = AF_INET;
 	saddr.sin_addr.s_addr = INADDR_ANY;
-	saddr.sin_port = htons(80);
+	saddr.sin_port = htons(30000);
 	ret = mtcp_bind(ctx->mctx, listener, 
 			(struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 	if (ret < 0) {
@@ -422,7 +258,7 @@ RunServerThread(void *arg)
 	int nevents;
 	int i, ret;
 	int do_accept;
-	
+
 	/* initialization */
 	ctx = InitializeServerThread(core);
 	if (!ctx) {
@@ -431,7 +267,6 @@ RunServerThread(void *arg)
 	}
 	mctx = ctx->mctx;
 	ep = ctx->ep;
-
 	events = (struct mtcp_epoll_event *)
 			calloc(MAX_EVENTS, sizeof(struct mtcp_epoll_event));
 	if (!events) {
@@ -445,14 +280,16 @@ RunServerThread(void *arg)
 		exit(-1);
 	}
 
+
 	while (!done[core]) {
 		nevents = mtcp_epoll_wait(mctx, ep, events, MAX_EVENTS, -1);
+		
 		if (nevents < 0) {
 			if (errno != EINTR)
 				perror("mtcp_epoll_wait");
 			break;
 		}
-
+		
 		do_accept = FALSE;
 		for (i = 0; i < nevents; i++) {
 
@@ -476,34 +313,20 @@ RunServerThread(void *arg)
 				} else {
 					perror("mtcp_getsockopt");
 				}
-				CloseConnection(ctx, events[i].data.sockid, 
-						&ctx->svars[events[i].data.sockid]);
+				CloseConnection(ctx, events[i].data.sockid);
 
 			} else if (events[i].events & MTCP_EPOLLIN) {
-				ret = HandleReadEvent(ctx, events[i].data.sockid, 
-						&ctx->svars[events[i].data.sockid]);
+				ret = HandleReadEvent(ctx, events[i].data.sockid);
 
 				if (ret == 0) {
 					/* connection closed by remote host */
-					CloseConnection(ctx, events[i].data.sockid, 
-							&ctx->svars[events[i].data.sockid]);
+					CloseConnection(ctx, events[i].data.sockid);
 				} else if (ret < 0) {
 					/* if not EAGAIN, it's an error */
 					if (errno != EAGAIN) {
-						CloseConnection(ctx, events[i].data.sockid, 
-								&ctx->svars[events[i].data.sockid]);
+						CloseConnection(ctx, events[i].data.sockid);
 					}
 				}
-
-			} else if (events[i].events & MTCP_EPOLLOUT) {
-				struct server_vars *sv = &ctx->svars[events[i].data.sockid];
-				if (sv->rspheader_sent) {
-					SendUntilAvailable(ctx, events[i].data.sockid, sv);
-				} else {
-					TRACE_APP("Socket %d: Response header not sent yet.\n", 
-							events[i].data.sockid);
-				}
-
 			} else {
 				assert(0);
 			}
@@ -531,7 +354,6 @@ void
 SignalHandler(int signum)
 {
 	int i;
-
 	for (i = 0; i < core_limit; i++) {
 		if (app_thread[i] == pthread_self()) {
 			//TRACE_INFO("Server thread %d got SIGINT\n", i);
@@ -556,11 +378,7 @@ printHelp(const char *prog_name)
 int 
 main(int argc, char **argv)
 {
-	DIR *dir;
-	struct dirent *ent;
-	int fd;
 	int ret;
-	uint64_t total_read;
 	struct mtcp_conf mcfg;
 	int cores[MAX_CPUS];
 	int process_cpu;
@@ -569,25 +387,14 @@ main(int argc, char **argv)
 	num_cores = GetNumCPUs();
 	core_limit = num_cores;
 	process_cpu = -1;
-	dir = NULL;
 
 	if (argc < 2) {
 		TRACE_CONFIG("$%s directory_to_service\n", argv[0]);
 		return FALSE;
 	}
 
-	while (-1 != (o = getopt(argc, argv, "N:f:p:c:b:h"))) {
+	while (-1 != (o = getopt(argc, argv, "N:f:c:b:h"))) {
 		switch (o) {
-		case 'p':
-			/* open the directory to serve */
-			www_main = optarg;
-			dir = opendir(www_main);
-			if (!dir) {
-				TRACE_CONFIG("Failed to open %s.\n", www_main);
-				perror("opendir");
-				return FALSE;
-			}
-			break;
 		case 'N':
 			core_limit = mystrtol(optarg, 10);
 			if (core_limit > num_cores) {
@@ -623,62 +430,6 @@ main(int argc, char **argv)
 		}
 	}
 	
-	if (dir == NULL) {
-		TRACE_CONFIG("You did not pass a valid www_path!\n");
-		exit(EXIT_FAILURE);
-	}
-
-	nfiles = 0;
-	while ((ent = readdir(dir)) != NULL) {
-		if (strcmp(ent->d_name, ".") == 0)
-			continue;
-		else if (strcmp(ent->d_name, "..") == 0)
-			continue;
-
-		snprintf(fcache[nfiles].name, NAME_LIMIT, "%s", ent->d_name);
-		snprintf(fcache[nfiles].fullname, FULLNAME_LIMIT, "%s/%s",
-			 www_main, ent->d_name);
-		fd = open(fcache[nfiles].fullname, O_RDONLY);
-		if (fd < 0) {
-			perror("open");
-			continue;
-		} else {
-			fcache[nfiles].size = lseek64(fd, 0, SEEK_END);
-			lseek64(fd, 0, SEEK_SET);
-		}
-
-		fcache[nfiles].file = (char *)malloc(fcache[nfiles].size);
-		if (!fcache[nfiles].file) {
-			TRACE_CONFIG("Failed to allocate memory for file %s\n", 
-				     fcache[nfiles].name);
-			perror("malloc");
-			continue;
-		}
-
-		TRACE_INFO("Reading %s (%lu bytes)\n", 
-				fcache[nfiles].name, fcache[nfiles].size);
-		total_read = 0;
-		while (1) {
-			ret = read(fd, fcache[nfiles].file + total_read, 
-					fcache[nfiles].size - total_read);
-			if (ret < 0) {
-				break;
-			} else if (ret == 0) {
-				break;
-			}
-			total_read += ret;
-		}
-		if (total_read < fcache[nfiles].size) {
-			free(fcache[nfiles].file);
-			continue;
-		}
-		close(fd);
-		nfiles++;
-
-		if (nfiles >= MAX_FILES)
-			break;
-	}
-
 	finished = 0;
 
 	/* initialize mtcp */
@@ -731,6 +482,6 @@ main(int argc, char **argv)
 	}
 	
 	mtcp_destroy();
-	closedir(dir);
 	return 0;
 }
+/*----------------------------------------------------------------------------*/
