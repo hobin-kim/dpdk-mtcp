@@ -11,6 +11,10 @@ enum ack_opt
 	ACK_OPT_WACK
 };
 
+int SendUDPPacketStandalone(struct mtcp_manager *mtcp, 
+	uint32_t saddr, uint16_t sport, uint32_t daddr, uint16_t dport, 
+	uint8_t *payload, int payloadlen);
+
 int
 SendTCPPacketStandalone(struct mtcp_manager *mtcp, 
 		uint32_t saddr, uint16_t sport, uint32_t daddr, uint16_t dport, 

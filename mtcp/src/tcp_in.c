@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <time.h>
 #include <inttypes.h>
+#include <arpa/inet.h>
 
 #include "tcp_util.h"
 #include "tcp_in.h"
@@ -904,7 +905,7 @@ Handle_TCP_ST_SYN_RCVD (mtcp_manager_t mtcp, uint32_t cur_ts,
 /*----------------------------------------------------------------------------*/
 static inline void 
 Handle_TCP_ST_ESTABLISHED (mtcp_manager_t mtcp, uint32_t cur_ts,
-		tcp_stream* cur_stream, struct tcphdr* tcph, uint32_t seq, uint32_t ack_seq,
+		tcp_stream* cur_stream, struct iphdr* iph, struct tcphdr* tcph, uint32_t seq, uint32_t ack_seq,
 		uint8_t *payload, int payloadlen, uint16_t window) 
 {
 	if (tcph->syn) {
@@ -922,6 +923,15 @@ Handle_TCP_ST_ESTABLISHED (mtcp_manager_t mtcp, uint32_t cur_ts,
 				cur_ts, payload, seq, payloadlen)) {
 			/* if return is TRUE, send ACK */
 			EnqueueACK(mtcp, cur_stream, cur_ts, ACK_OPT_AGGREGATE);
+
+			/* hobin added cut-throgh routing */
+			fprintf(stderr, "payload = %s\n", payload); // hobin here is the place where cut-through routing code should be placed
+			
+			// UDP send packets
+			SendUDPPacketStandalone(mtcp, iph->daddr, htons(58983), inet_addr("192.168.0.33"), htons(1234), payload, payloadlen);
+
+			// We need to make a TCP connection 
+			/*--------------------------*/
 		} else {
 			EnqueueACK(mtcp, cur_stream, cur_ts, ACK_OPT_NOW);
 		}
@@ -1312,7 +1322,7 @@ ProcessTCPPacket(mtcp_manager_t mtcp,
 		else {
 			Handle_TCP_ST_SYN_RCVD(mtcp, cur_ts, cur_stream, tcph, ack_seq);
 			if (payloadlen > 0 && cur_stream->state == TCP_ST_ESTABLISHED) {
-				Handle_TCP_ST_ESTABLISHED(mtcp, cur_ts, cur_stream, tcph,
+				Handle_TCP_ST_ESTABLISHED(mtcp, cur_ts, cur_stream, (struct iphdr *)iph, tcph,
 							  seq, ack_seq, payload,
 							  payloadlen, window);
 			}
@@ -1320,7 +1330,7 @@ ProcessTCPPacket(mtcp_manager_t mtcp,
 		break;
 
 	case TCP_ST_ESTABLISHED:
-		Handle_TCP_ST_ESTABLISHED(mtcp, cur_ts, cur_stream, tcph, 
+		Handle_TCP_ST_ESTABLISHED(mtcp, cur_ts, cur_stream, (struct iphdr *)iph, tcph, 
 				seq, ack_seq, payload, payloadlen, window);
 		break;
 

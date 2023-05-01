@@ -8,9 +8,26 @@
 #include "eventpoll.h"
 #include "timer.h"
 #include "debug.h"
+#include <arpa/inet.h>
 #if RATE_LIMIT_ENABLED || PACING_ENABLED
 #include "pacing.h"
 #endif
+
+
+/*----------------------------------------------------------------------------*/
+#include <rte_mbuf.h>
+#include <rte_ethdev.h>
+#include <rte_ether.h>
+#include <rte_ip.h>
+#include <rte_udp.h>
+#include <mtcp_api.h>
+/*----------------------------------------------------------------------------*/
+#define IP_DEFTTL  64   /* from RFC 1340. */
+#define IP_VERSION 0x40
+#define IP_HDRLEN  0x05 /* default IP header length == five 32-bits words. */
+#define IP_VHL_DEF (IP_VERSION | IP_HDRLEN)
+/*----------------------------------------------------------------------------*/
+
 
 #define TCP_CALCULATE_CHECKSUM      TRUE
 #define ACK_PIGGYBACK				TRUE
@@ -18,6 +35,106 @@
 
 #define TCP_MAX_WINDOW 65535
 
+/*----------------------------------------------------------------------------*/
+// hobin added 
+uint16_t calculate_ip_checksum(uint16_t *ip_header, int header_len) {
+    uint32_t sum = 0;
+
+    // Calculate the sum of all 16-bit words in the IP header
+    while (header_len > 1) {
+        sum += *ip_header++;
+        header_len -= 2;
+    }
+
+    // Add the leftover byte, if present
+    if (header_len == 1) {
+        sum += *((uint8_t *)ip_header);
+    }
+
+    // Add the carry and fold the sum to 16 bits
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // Take the one's complement of the sum
+    uint16_t checksum = (uint16_t)~sum;
+
+    return checksum;
+}
+
+
+int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t sport, uint32_t daddr, uint16_t dport, 
+	uint8_t *payload, int payloadlen)
+{
+	uint16_t portid = 0;
+
+    /* Define ethernet header */
+    struct ether_hdr *eth_hdr;
+	struct ether_addr smac;
+    rte_eth_macaddr_get(0, &smac);
+	// struct ether_addr dmac = {{0x1C,0xFD,0x08,0x79,0x0A,0xC5}};
+	struct ether_addr dmac = {{0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}};
+	uint16_t ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4); // IPv4 packet
+
+	struct in_addr addr;
+	addr.s_addr = saddr;
+	char str_addr1[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &addr, str_addr1, INET_ADDRSTRLEN);
+
+	struct in_addr addr2;
+	addr2.s_addr = daddr;
+	char str_addr2[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &addr2, str_addr2, INET_ADDRSTRLEN);
+
+	// eth_hdr = rte_pktmbuf_mtod(pkt,struct ether_hdr*);
+	uint8_t *buf = mtcp->iom->get_wptr(mtcp->ctx, 0, sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + payloadlen + ETHERNET_HEADER_LEN);
+	if (buf == NULL) {
+		fprintf(stderr, "no buffer space\n");
+		return -1;
+	}
+	eth_hdr = (struct ether_hdr *) buf;
+	eth_hdr->d_addr = dmac;
+	eth_hdr->s_addr = smac;
+	eth_hdr->ether_type = ether_type;
+	
+	/* Define IP header */
+	struct ipv4_hdr *ip_hdr;
+	ip_hdr = (struct ipv4_hdr *)(eth_hdr + 1);
+	ip_hdr->version_ihl = IP_VHL_DEF;
+	ip_hdr->type_of_service = 0;
+	ip_hdr->total_length = htons(sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + payloadlen);
+	ip_hdr->packet_id = htons(12253);
+	ip_hdr->fragment_offset = 0x0040;
+	ip_hdr->time_to_live = IP_DEFTTL;
+	ip_hdr->next_proto_id = IPPROTO_UDP;
+	ip_hdr->src_addr = inet_addr(str_addr1); /* src ip */
+	ip_hdr->dst_addr = inet_addr(str_addr2);; /* dst ip */
+	// ip_hdr->hdr_checksum = htons(0x885a);
+	ip_hdr->hdr_checksum = calculate_ip_checksum((uint16_t *)ip_hdr, sizeof(struct ipv4_hdr));
+	// ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
+
+	/* Define UDP header */
+	struct udp_hdr *udp_hdr;
+	udp_hdr = (struct udp_hdr *)(ip_hdr + 1);
+	udp_hdr->src_port = sport; /* src port */
+	udp_hdr->dst_port = dport; /* dst port */
+	udp_hdr->dgram_len = htons(sizeof(struct udp_hdr) + payloadlen);
+	udp_hdr->dgram_cksum = 0;
+
+	// Calculate UDP checksum
+	// udp_hdr->dgram_cksum = rte_ipv4_udptcp_cksum(ip_hdr, udp_hdr);
+
+	// Calculate IP header checksum
+	// ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
+
+
+	memcpy(udp_hdr + 1, payload, payloadlen);
+
+	int ret = mtcp->iom->send_pkts(mtcp->ctx, 0);
+	fprintf(stderr, "portid = %d\n queueid = %d\n ret = %d\n", portid, mtcp->ctx->cpu, ret);
+
+	return 0;
+}
 /*----------------------------------------------------------------------------*/
 static inline uint16_t
 CalculateOptionLength(uint8_t flags)
