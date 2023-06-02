@@ -21,6 +21,74 @@
 #define MAX(a, b) ((a)>(b)?(a):(b))
 #define MIN(a, b) ((a)<(b)?(a):(b))
 
+/* hobin added for tcp_peer set */
+int add_tcp_peer(mctx_t mctx, int sockid) {
+    // Create a new tcp_peer object
+    struct tcp_peer* new_peer = (struct tcp_peer*)malloc(sizeof(struct tcp_peer));
+    if (new_peer == NULL) {
+        // Memory allocation failed
+        return -1;
+    }
+
+    // Initialize the new tcp_peer object
+    new_peer->ctx = mctx;
+    new_peer->sockid = sockid;
+    new_peer->next = NULL;
+
+    if (tcp_peer_set == NULL) {
+        // If the linked list is empty, make the new_peer the head of the list
+        tcp_peer_set = new_peer;
+		fprintf(stderr, "in add_tcp_peer: %p\n", new_peer->ctx);
+    } else {
+        // Find the last node in the linked list
+        struct tcp_peer* current = tcp_peer_set;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+
+        // Append the new_peer to the end of the list
+        current->next = new_peer;
+    }
+	
+    return 0; // Success
+}
+
+
+int delete_tcp_peer(int sockid) {
+    if (tcp_peer_set == NULL) {
+        // Linked list is empty
+        return -1;
+    }
+
+    // If the first node contains the tcp_peer object to delete
+    if (tcp_peer_set->sockid == sockid) {
+        struct tcp_peer* temp = tcp_peer_set;
+        tcp_peer_set = tcp_peer_set->next;
+        free(temp);
+        return 0; // Success
+    }
+
+    // Find the tcp_peer object to delete in the linked list
+    struct tcp_peer* current = tcp_peer_set;
+    struct tcp_peer* previous = NULL;
+
+    while (current != NULL && current->sockid != sockid) {
+        previous = current;
+        current = current->next;
+    }
+
+    if (current == NULL) {
+        // tcp_peer object not found in the linked list
+        return -1;
+    }
+
+    // Update the links to remove the tcp_peer object from the linked list
+    previous->next = current->next;
+    free(current);
+
+    return 0; // Success
+}
+
 /*----------------------------------------------------------------------------*/
 static inline int 
 mtcp_is_connected(mtcp_manager_t mtcp, tcp_stream *cur_stream)
@@ -1464,40 +1532,45 @@ CopyFromUser(mtcp_manager_t mtcp, tcp_stream *cur_stream, const char *buf, int l
 ssize_t
 mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 {
+	fprintf(stderr, "case0\n");
+	fprintf(stderr, "Peer added: %p\n", (void*)&mctx);
+	
 	mtcp_manager_t mtcp;
 	socket_map_t socket;
 	tcp_stream *cur_stream;
 	struct tcp_send_vars *sndvar;
 	int ret;
+fprintf(stderr, "case1\n");
 
+	fprintf(stderr, "Peer added: %p\n", (void*)&mctx);
 	mtcp = GetMTCPManager(mctx);
 	if (!mtcp) {
 		return -1;
 	}
-
+fprintf(stderr, "case2\n");
 	if (sockid < 0 || sockid >= CONFIG.max_concurrency) {
 		TRACE_API("Socket id %d out of range.\n", sockid);
 		errno = EBADF;
 		return -1;
 	}
-
+fprintf(stderr, "case3\n");
 	socket = &mtcp->smap[sockid];
 	if (socket->socktype == MTCP_SOCK_UNUSED) {
 		TRACE_API("Invalid socket id: %d\n", sockid);
 		errno = EBADF;
 		return -1;
 	}
-
+fprintf(stderr, "case4\n");
 	if (socket->socktype == MTCP_SOCK_PIPE) {
 		return PipeWrite(mctx, sockid, buf, len);
 	}
-
+fprintf(stderr, "case5\n");
 	if (socket->socktype != MTCP_SOCK_STREAM) {
 		TRACE_API("Not an end socket. id: %d\n", sockid);
 		errno = ENOTSOCK;
 		return -1;
 	}
-	
+	fprintf(stderr, "case6\n");
 	cur_stream = socket->stream;
 	if (!cur_stream || 
 			!(cur_stream->state == TCP_ST_ESTABLISHED || 
@@ -1505,7 +1578,7 @@ mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 		errno = ENOTCONN;
 		return -1;
 	}
-
+fprintf(stderr, "case7\n");
 	if (len <= 0) {
 		if (socket->opts & MTCP_NONBLOCK) {
 			errno = EAGAIN;
@@ -1534,6 +1607,9 @@ mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 	}
 #endif
 
+
+	fprintf(stderr, "case1\n");
+
 	ret = CopyFromUser(mtcp, cur_stream, buf, len);
 
 	SBUF_UNLOCK(&sndvar->write_lock);
@@ -1545,7 +1621,7 @@ mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 		SQ_UNLOCK(&mtcp->ctx->sendq_lock);
 		mtcp->wakeup_flag = TRUE;
 	}
-
+	fprintf(stderr, "case2\n");
 	if (ret == 0 && (socket->opts & MTCP_NONBLOCK)) {
 		ret = -1;
 		errno = EAGAIN;

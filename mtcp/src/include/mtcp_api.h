@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <netinet/in.h>
 #include <sys/uio.h>
+#include <stdlib.h>
 
 #ifndef UNUSED
 #define UNUSED(x)	(void)x
@@ -41,6 +42,18 @@ struct mtcp_conf
 };
 
 typedef struct mtcp_context *mctx_t;
+
+struct tcp_peer {
+    mctx_t ctx;
+    int sockid;
+    struct tcp_peer* next;
+};
+
+struct tcp_peer* tcp_peer_set;
+
+int add_tcp_peer(mctx_t ctx, int sockid);
+
+int delete_tcp_peer(int sockid);
 
 int 
 mtcp_init(const char *config_file);

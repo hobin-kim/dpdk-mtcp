@@ -76,26 +76,29 @@ CloseConnection(struct thread_context *ctx, int sockid)
 {
 	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_DEL, sockid, NULL);
 	mtcp_close(ctx->mctx, sockid);
+
+	/* hobin added */
+	delete_tcp_peer(sockid);
 }
 /*----------------------------------------------------------------------------*/
 static int 
 SendUntilAvailable(struct thread_context *ctx, int sockid, char *data)
 {
-	int ret;
+	// int ret;
 	int sent;
 	int len;
 
 	sent = 0;
-	ret = 1;
+	// ret = 1;
 
 	len = strlen(data);
 	if (len <= 0) {
 		TRACE_APP("Connection closed with client.\n");
 	}
-	ret = mtcp_write(ctx->mctx, sockid, data, len);
-	if (ret < 0) {
-		TRACE_APP("Connection closed with client.\n");
-	}
+	// ret = mtcp_write(ctx->mctx, sockid, data, len);
+	// if (ret < 0) {
+	// 	TRACE_APP("Connection closed with client.\n");
+	// }
 	TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
 
 	struct mtcp_epoll_event ev;
@@ -141,7 +144,7 @@ AcceptConnection(struct thread_context *ctx, int listener)
 
 	if (c >= 0) {
 		if (c >= MAX_FLOW_NUM) {
-			TRACE_ERROR("Invalid socket id %d.\n", c);
+			TRACE_ERROR("Invalid socket id %d.\n"s, c);
 			return -1;
 		}
 
@@ -151,6 +154,11 @@ AcceptConnection(struct thread_context *ctx, int listener)
 		mtcp_setsock_nonblock(ctx->mctx, c);
 		mtcp_epoll_ctl(mctx, ctx->ep, MTCP_EPOLL_CTL_ADD, c, &ev);
 		TRACE_APP("Socket %d registered.\n", c);
+
+		/* hobin added at tcp_peer_set */
+		add_tcp_peer(mctx, ev.data.sockid);
+		fprintf(stderr, "Peer added: %p\n", (void*)&mctx);
+
 
 	} else {
 		if (errno != EAGAIN) {
@@ -431,6 +439,11 @@ main(int argc, char **argv)
 	}
 	
 	finished = 0;
+
+	/* Hobin added, tcp_peer initialization */
+	tcp_peer_set = NULL;
+
+
 
 	/* initialize mtcp */
 	if (conf_file == NULL) {
