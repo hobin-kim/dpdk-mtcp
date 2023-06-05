@@ -95,12 +95,14 @@ SendUntilAvailable(struct thread_context *ctx, int sockid, char *data)
 	if (len <= 0) {
 		TRACE_APP("Connection closed with client.\n");
 	}
+
 	// ret = mtcp_write(ctx->mctx, sockid, data, len);
 	// if (ret < 0) {
 	// 	TRACE_APP("Connection closed with client.\n");
 	// }
-	TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
-
+	
+	// TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
+	// fprintf(stderr, "app2");
 	struct mtcp_epoll_event ev;
 	finished++;
 	ev.events = MTCP_EPOLLIN;
@@ -128,6 +130,7 @@ HandleReadEvent(struct thread_context *ctx, int sockid)
 	ev.data.sockid = sockid;
 	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_MOD, sockid, &ev);
 
+	fprintf(stderr, "app1");
 	SendUntilAvailable(ctx, sockid, buf);
 	
 	return rd;
