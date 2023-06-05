@@ -1532,44 +1532,40 @@ CopyFromUser(mtcp_manager_t mtcp, tcp_stream *cur_stream, const char *buf, int l
 ssize_t
 mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 {
-
-	fprintf(stderr, "Peer added: %p\n", mctx);
-	fprintf(stderr, "case0\n");
 	mtcp_manager_t mtcp;
 	socket_map_t socket;
 	tcp_stream *cur_stream;
 	struct tcp_send_vars *sndvar;
 	int ret;
 
-	fprintf(stderr, "case1\n");
 	mtcp = GetMTCPManager(mctx);
 	if (!mtcp) {
 		return -1;
 	}
-	fprintf(stderr, "case2\n");
+
 	if (sockid < 0 || sockid >= CONFIG.max_concurrency) {
 		TRACE_API("Socket id %d out of range.\n", sockid);
 		errno = EBADF;
 		return -1;
 	}
-	fprintf(stderr, "case3\n");
+
 	socket = &mtcp->smap[sockid];
 	if (socket->socktype == MTCP_SOCK_UNUSED) {
 		TRACE_API("Invalid socket id: %d\n", sockid);
 		errno = EBADF;
 		return -1;
 	}
-	fprintf(stderr, "case4\n");
+
 	if (socket->socktype == MTCP_SOCK_PIPE) {
 		return PipeWrite(mctx, sockid, buf, len);
 	}
-	fprintf(stderr, "case5\n");
+
 	if (socket->socktype != MTCP_SOCK_STREAM) {
 		TRACE_API("Not an end socket. id: %d\n", sockid);
 		errno = ENOTSOCK;
 		return -1;
 	}
-	fprintf(stderr, "case6\n");
+
 	cur_stream = socket->stream;
 	if (!cur_stream || 
 			!(cur_stream->state == TCP_ST_ESTABLISHED || 
@@ -1577,7 +1573,7 @@ mtcp_write(mctx_t mctx, int sockid, const char *buf, size_t len)
 		errno = ENOTCONN;
 		return -1;
 	}
-	fprintf(stderr, "case7\n");
+
 	if (len <= 0) {
 		if (socket->opts & MTCP_NONBLOCK) {
 			errno = EAGAIN;
