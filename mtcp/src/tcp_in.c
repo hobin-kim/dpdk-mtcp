@@ -928,6 +928,7 @@ Handle_TCP_ST_ESTABLISHED (mtcp_manager_t mtcp, uint32_t cur_ts,
 			/* hobin added cut-throgh routing */
 			fprintf(stderr, "payload = %s\n", payload); // hobin here is the place where cut-through routing code should be placed
 			
+		
 			// UDP cut-through routing
 			SendUDPPacketStandalone(mtcp, iph->daddr, htons(58983), inet_addr("192.168.0.33"), htons(1234), payload, payloadlen);
 
@@ -935,20 +936,9 @@ Handle_TCP_ST_ESTABLISHED (mtcp_manager_t mtcp, uint32_t cur_ts,
 			struct tcp_peer* current = tcp_peer_set;
 
 			while (current != NULL) {
-				// Access the current element
-				// For example, you can access the mctx_t member like this:
 				mctx_t ctx = current->ctx;
-				fprintf(stderr, "in ESTAB = %p\n", ctx);
-				// if (ctx == (mctx_t *)mtcp->ctx) {
-				// 	continue;
-				// }
-
-				// Process the current element as needed
 				mtcp_write(ctx, current->sockid, (const char*)payload, payloadlen);
-				// Move to the next element
 				current = current->next;
-
-				
 			}
 
 		} else {
