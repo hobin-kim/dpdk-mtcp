@@ -214,7 +214,7 @@ mtcp_getsockname(mctx_t mctx, int sockid, struct sockaddr *addr,
 	}
 	
 	if (socket->socktype != MTCP_SOCK_LISTENER && 
-	    socket->socktype != MTCP_SOCK_STREAM) {
+	    socket->socktype != MTCP_SOCK_STREAM && socket->socktype != MTCP_SOCK_STREAM) {
 		TRACE_API("Invalid socket id: %d\n", sockid);
 		errno = ENOTSOCK;
 		return -1;
@@ -464,12 +464,21 @@ mtcp_socket(mctx_t mctx, int domain, int type, int protocol)
 
 	if (type == SOCK_STREAM) {
 		type = (int)MTCP_SOCK_STREAM;
+	} else if (type == SOCK_DGRAM) {
+		type = (int)MTCP_SOCK_DGRAM;
 	} else {
 		errno = EINVAL;
 		return -1;
 	}
 
 	socket = AllocateSocket(mctx, type, FALSE);
+
+	// hobin added for UDP - but to be modified its location?
+	// udp_socket = socket
+	if (type == SOCK_DGRAM) {
+		mtcp->udp_socket = socket;
+	}
+
 	if (!socket) {
 		errno = ENFILE;
 		return -1;
@@ -503,7 +512,8 @@ mtcp_bind(mctx_t mctx, int sockid,
 	}
 	
 	if (mtcp->smap[sockid].socktype != MTCP_SOCK_STREAM && 
-			mtcp->smap[sockid].socktype != MTCP_SOCK_LISTENER) {
+			mtcp->smap[sockid].socktype != MTCP_SOCK_LISTENER && 
+				mtcp->smap[sockid].socktype != MTCP_SOCK_DGRAM) {
 		TRACE_API("Not a stream socket id: %d\n", sockid);
 		errno = ENOTSOCK;
 		return -1;

@@ -212,7 +212,7 @@ InitializeServerThread(int core)
 }
 /*----------------------------------------------------------------------------*/
 int 
-CreateListeningSocket(struct thread_context *ctx)
+CreateTCPListeningSocket(struct thread_context *ctx)
 {
 	int listener;
 	struct mtcp_epoll_event ev;
@@ -257,9 +257,48 @@ CreateListeningSocket(struct thread_context *ctx)
 	return listener;
 }
 /*----------------------------------------------------------------------------*/
-void *
-RunServerThread(void *arg)
+int 
+CreateUDPSocket(struct thread_context *ctx)
 {
+	int udp_socket;
+	struct mtcp_epoll_event ev;
+	struct sockaddr_in saddr;
+	int ret;
+
+	/* create socket and set it as nonblocking */
+	udp_socket = mtcp_socket(ctx->mctx, AF_INET, SOCK_DGRAM, 0);
+	if (udp_socket < 0) {
+		TRACE_ERROR("Failed to create listening socket!\n");
+		return -1;
+	}
+	ret = mtcp_setsock_nonblock(ctx->mctx, udp_socket);
+	if (ret < 0) {
+		TRACE_ERROR("Failed to set socket in nonblocking mode.\n");
+		return -1;
+	}
+
+	/* bind to port 80 */
+	saddr.sin_family = AF_INET;
+	saddr.sin_addr.s_addr = INADDR_ANY;
+	saddr.sin_port = htons(40000);
+	ret = mtcp_bind(ctx->mctx, udp_socket, 
+			(struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
+	if (ret < 0) {
+		TRACE_ERROR("Failed to bind to the listening socket!\n");
+		return -1;
+	}
+
+	ev.events = MTCP_EPOLLIN | MTCP_EPOLLOUT;
+	ev.data.sockid = udp_socket;
+	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_ADD, udp_socket, &ev);
+
+	return udp_socket;
+} 
+/*----------------------------------------------------------------------------*/
+void *
+RunTCPServerThread(void *arg)
+{
+	fprintf(stderr, "How many TCPRunServerThread?\n");
 	int core = *(int *)arg;
 	struct thread_context *ctx;
 	mctx_t mctx;
@@ -285,7 +324,8 @@ RunServerThread(void *arg)
 		exit(-1);
 	}
 
-	listener = CreateListeningSocket(ctx);
+	listener = CreateTCPListeningSocket(ctx);
+	
 	if (listener < 0) {
 		TRACE_ERROR("Failed to create listening socket.\n");
 		exit(-1);
@@ -352,6 +392,93 @@ RunServerThread(void *arg)
 			}
 		}
 
+	}
+
+	/* destroy mtcp context: this will kill the mtcp thread */
+	mtcp_destroy_context(mctx);
+	pthread_exit(NULL);
+
+	return NULL;
+}
+/*----------------------------------------------------------------------------*/
+void *
+RunUDPServerThread(void *arg)
+{
+	fprintf(stderr, "How many RunUDPThread?\n");
+	int core = *(int *)arg;
+	struct thread_context *ctx;
+	mctx_t mctx;
+	int udp_socket;
+	int ep;
+	struct mtcp_epoll_event *events;
+	int nevents;
+	int i, ret;
+
+	/* initialization */
+	ctx = InitializeServerThread(core);
+	if (!ctx) {
+		TRACE_ERROR("Failed to initialize server thread.\n");
+		return NULL;
+	}
+	mctx = ctx->mctx;
+	ep = ctx->ep;
+	events = (struct mtcp_epoll_event *)
+			calloc(MAX_EVENTS, sizeof(struct mtcp_epoll_event));
+	if (!events) {
+		TRACE_ERROR("Failed to create event struct!\n");
+		exit(-1);
+	}
+
+	udp_socket = CreateUDPSocket(ctx);
+	
+	if (udp_socket < 0) {
+		TRACE_ERROR("Failed to create listening socket.\n");
+		exit(-1);
+	}
+
+
+	// hobin added - events[i].data.sockid must be the udp_socket
+	while (!done[core]) {
+		nevents = mtcp_epoll_wait(mctx, ep, events, MAX_EVENTS, -1);
+		if (nevents < 0) {
+			if (errno != EINTR)
+				perror("mtcp_epoll_wait");
+			break;
+		}
+		
+		for (i = 0; i < nevents; i++) {
+			if (events[i].events & MTCP_EPOLLERR) {
+				int err;
+				socklen_t len = sizeof(err);
+
+				/* error on the connection */
+				TRACE_APP("[CPU %d] Error on socket %d\n", 
+						core, events[i].data.sockid);
+				if (mtcp_getsockopt(mctx, events[i].data.sockid, 
+						SOL_SOCKET, SO_ERROR, (void *)&err, &len) == 0) {
+					if (err != ETIMEDOUT) {
+						fprintf(stderr, "Error on socket %d: %s\n", 
+								events[i].data.sockid, strerror(err));
+					}
+				} else {
+					perror("mtcp_getsockopt");
+				}
+				CloseConnection(ctx, events[i].data.sockid);
+			} else if (events[i].events & MTCP_EPOLLIN) {
+				ret = HandleReadEvent(ctx, events[i].data.sockid);
+				if (ret == 0) {
+					/* connection closed by remote host */
+					CloseConnection(ctx, events[i].data.sockid);
+				} else if (ret < 0) {
+					/* if not EAGAIN, it's an error */
+					if (errno != EAGAIN) {
+						CloseConnection(ctx, events[i].data.sockid);
+					}
+				}
+			} else {
+				assert(0);
+			}
+		}
 	}
 
 	/* destroy mtcp context: this will kill the mtcp thread */
@@ -477,11 +604,12 @@ main(int argc, char **argv)
 	TRACE_INFO("Application initialization finished.\n");
 
 	for (i = ((process_cpu == -1) ? 0 : process_cpu); i < core_limit; i++) {
+		fprintf(stderr, "how many i? %d\n", i);
 		cores[i] = i;
 		done[i] = FALSE;
 		
 		if (pthread_create(&app_thread[i], 
-				   NULL, RunServerThread, (void *)&cores[i])) {
+				   NULL, RunTCPServerThread, (void *)&cores[i])) {
 			perror("pthread_create");
 			TRACE_CONFIG("Failed to create server thread.\n");
 				exit(EXIT_FAILURE);

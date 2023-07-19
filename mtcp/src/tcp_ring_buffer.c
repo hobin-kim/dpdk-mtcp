@@ -392,7 +392,6 @@ size_t
 RBRemove(rb_manager_t rbm, struct tcp_ring_buffer* buff, size_t len, int option)
 {
 	/* this function should be called only in application thread */
-
 	if (buff->merged_len < len) 
 		len = buff->merged_len;
 	
@@ -427,3 +426,72 @@ RBRemove(rb_manager_t rbm, struct tcp_ring_buffer* buff, size_t len, int option)
 	return len;
 }
 /*----------------------------------------------------------------------------*/
+// hobin added for UDP functions
+struct udp_ring_buffer* 
+udp_RBInit(rb_manager_t rbm)
+{
+	struct udp_ring_buffer* buff = 
+			(struct udp_ring_buffer*)calloc(1, sizeof(struct udp_ring_buffer));
+
+	if (buff == NULL){
+		perror("udp_rb_init buff");
+		return NULL;
+	}
+
+	buff->buffer_start = MPAllocateChunk(rbm->mp);
+	if(!buff->buffer_start){
+		perror("udp_rb_init MPAllocateChunk");
+		free(buff);
+		return NULL;
+	}
+
+	//memset(buff->data, 0, rbm->chunk_size);
+
+	buff->size = rbm->chunk_size;
+	buff->head = buff->buffer_start;
+	buff->tail = buff->head;
+
+	rbm->cur_num++;
+
+	return buff;
+}
+/*----------------------------------------------------------------------------*/
+int
+udp_RBPut(rb_manager_t rbm, struct udp_ring_buffer* buff, 
+	   void* data, uint32_t len)
+{
+
+	// Not implemented: The input length is longer than the data len
+	int buffer_size = buff->size;
+
+	// ring buffer에 데이터 넣는 코드 작성하기
+	if (buff->tail + len > buff->buffer_start + buff->size) {
+	 	int left_buffer_size = buff->head + buff->size - buff->tail;
+		memcpy(buff->tail, data, left_buffer_size);
+		memcpy(buff->buffer_start, data + left_buffer_size ,len - left_buffer_size);
+		buff->tail = buff->buffer_start + len - left_buffer_size;
+		buff->data_len = buff->data_len + len;
+		return len;
+	} else if (buff->tail < buff->buffer_start && buff->tail + len > buff->buffer_start) {
+		assert(-1);
+		return 0;
+	} else {
+		memcpy(buff->tail, data, len);
+		buff->tail = buff->tail + len;
+		buff->data_len = buff->data_len + len;
+		return len;
+	}
+}
+/*----------------------------------------------------------------------------*/
+size_t
+udp_RBRemove(rb_manager_t rbm, struct udp_ring_buffer* buff, size_t len, int option)
+{
+	/* this function should be called only in application thread */
+	if (len == 0)
+		return 0;
+
+	buff->head = buff->head + len;
+	buff->data_len = buff->data_len - len;
+
+	return len;
+}

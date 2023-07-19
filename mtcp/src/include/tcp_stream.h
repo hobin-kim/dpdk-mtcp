@@ -249,6 +249,21 @@ RaiseCloseEvent(mtcp_manager_t mtcp, tcp_stream *stream);
 extern inline void 
 RaiseErrorEvent(mtcp_manager_t mtcp, tcp_stream *stream);
 
+// hobin added for UDP
+extern inline void 
+udp_RaiseReadEvent(mtcp_manager_t mtcp);
+
+extern inline void 
+udp_RaiseWriteEvent(mtcp_manager_t mtcp);
+
+extern inline void 
+udp_RaiseCloseEvent(mtcp_manager_t mtcp);
+
+extern inline void 
+udp_RaiseErrorEvent(mtcp_manager_t mtcp);
+
+// hobin added until here
+
 tcp_stream *
 CreateTCPStream(mtcp_manager_t mtcp, socket_map_t socket, int type, 
 		uint32_t saddr, uint16_t sport, uint32_t daddr, uint16_t dport);

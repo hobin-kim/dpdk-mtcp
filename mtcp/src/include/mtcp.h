@@ -273,6 +273,19 @@ struct mtcp_manager
 	int timewait_list_cnt;
 	int timeout_list_cnt;
 
+
+	/* hobin added for UDP communication */
+	struct udp_ring_buffer *udp_rcvbuf;
+	socket_map_t udp_socket;
+
+	struct mtcp_epoll *udp_ep; // mtcp->ep와 동일하게 생각해도 될듯
+
+	uint32_t udp_epoll;			/* registered events */
+	uint32_t udp_events;		/* available events */
+	mtcp_epoll_data_t udp_ep_data;
+
+	
+
 #if BLOCKING_SUPPORT
 	TAILQ_HEAD (rcv_br_head, tcp_stream) rcv_br_list;
 	TAILQ_HEAD (snd_br_head, tcp_stream) snd_br_list;

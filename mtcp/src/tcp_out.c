@@ -72,7 +72,6 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
     struct ether_hdr *eth_hdr;
 	struct ether_addr smac;
     rte_eth_macaddr_get(0, &smac);
-	// struct ether_addr dmac = {{0x1C,0xFD,0x08,0x79,0x0A,0xC5}};
 	struct ether_addr dmac = {{0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}};
 	uint16_t ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4); // IPv4 packet
 
@@ -86,7 +85,6 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
 	char str_addr2[INET_ADDRSTRLEN];
 	inet_ntop(AF_INET, &addr2, str_addr2, INET_ADDRSTRLEN);
 
-	// eth_hdr = rte_pktmbuf_mtod(pkt,struct ether_hdr*);
 	uint8_t *buf = mtcp->iom->get_wptr(mtcp->ctx, 0, sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + payloadlen + ETHERNET_HEADER_LEN);
 	if (buf == NULL) {
 		fprintf(stderr, "no buffer space\n");
@@ -109,9 +107,7 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
 	ip_hdr->next_proto_id = IPPROTO_UDP;
 	ip_hdr->src_addr = inet_addr(str_addr1); /* src ip */
 	ip_hdr->dst_addr = inet_addr(str_addr2);; /* dst ip */
-	// ip_hdr->hdr_checksum = htons(0x885a);
 	ip_hdr->hdr_checksum = calculate_ip_checksum((uint16_t *)ip_hdr, sizeof(struct ipv4_hdr));
-	// ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
 
 	/* Define UDP header */
 	struct udp_hdr *udp_hdr;
@@ -121,13 +117,6 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
 	udp_hdr->dgram_len = htons(sizeof(struct udp_hdr) + payloadlen);
 	udp_hdr->dgram_cksum = 0;
 
-	// Calculate UDP checksum
-	// udp_hdr->dgram_cksum = rte_ipv4_udptcp_cksum(ip_hdr, udp_hdr);
-
-	// Calculate IP header checksum
-	// ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
-
-
 	memcpy(udp_hdr + 1, payload, payloadlen);
 
 	int ret = mtcp->iom->send_pkts(mtcp->ctx, 0);
@@ -135,6 +124,7 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
 
 	return 0;
 }
+
 /*----------------------------------------------------------------------------*/
 static inline uint16_t
 CalculateOptionLength(uint8_t flags)

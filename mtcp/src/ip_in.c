@@ -54,6 +54,8 @@ ProcessIPv4Packet(mtcp_manager_t mtcp, uint32_t cur_ts,
 			return ProcessTCPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
 		case IPPROTO_ICMP:
 			return ProcessICMPPacket(mtcp, iph, ip_len);
+		case IPPROTO_UDP: // hobin added
+			return ProcessUDPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
 		default:
 			/* currently drop other protocols */
 			return FALSE;

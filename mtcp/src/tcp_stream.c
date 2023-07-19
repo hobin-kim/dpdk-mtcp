@@ -682,3 +682,67 @@ DumpStream(mtcp_manager_t mtcp, tcp_stream *stream)
 			rcvvar->srtt, rcvvar->mdev, rcvvar->mdev_max, 
 			rcvvar->rttvar, rcvvar->rtt_seq);
 }
+
+/*---------------------------------------------------------------------------*/
+inline void 
+udp_RaiseReadEvent(mtcp_manager_t mtcp)
+{
+	if (mtcp->udp_socket) {
+		if (mtcp->udp_socket->epoll & MTCP_EPOLLIN) {
+			AddEpollEvent(mtcp->ep, 
+					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLIN);
+#if BLOCKING_SUPPORT
+		} else if (!(mtcp->udp_socket->opts & MTCP_NONBLOCK)) {
+			if (!mtcp->udp_socket->on_rcv_br_list) {
+				mtcp->udp_socket->on_rcv_br_list = TRUE;
+				mtcp->rcv_br_list_cnt++;
+			}
+#endif
+		}
+	} else {
+		TRACE_EPOLL("UDP: Raising read without a socket!\n",);
+	}
+}
+/*---------------------------------------------------------------------------*/
+inline void 
+udp_RaiseWriteEvent(mtcp_manager_t mtcp)
+{
+	if (mtcp->udp_socket) {
+		if (mtcp->udp_socket->epoll & MTCP_EPOLLOUT) {
+			AddEpollEvent(mtcp->ep, 
+					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLOUT);
+			} 
+		} else {
+		TRACE_EPOLL("Stream UDP: Raising write without a socket!\n");
+	}
+}
+/*---------------------------------------------------------------------------*/
+// hobin added for UDP functions
+inline void 
+udp_RaiseCloseEvent(mtcp_manager_t mtcp)
+{
+	if (mtcp->udp_socket) {
+		if (mtcp->udp_socket->epoll & MTCP_EPOLLRDHUP) {
+			AddEpollEvent(mtcp->ep, 
+					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLRDHUP);
+		} else if (mtcp->udp_socket->epoll & MTCP_EPOLLIN) {
+			AddEpollEvent(mtcp->ep, 
+					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLIN);
+		} 
+	} else {
+		TRACE_EPOLL("UDP: Raising close without a socket!\n");
+	}
+}
+/*---------------------------------------------------------------------------*/
+inline void 
+udp_RaiseErrorEvent(mtcp_manager_t mtcp)
+{
+	if (mtcp->udp_socket) {
+		if (mtcp->udp_socket->epoll & MTCP_EPOLLERR) {
+			AddEpollEvent(mtcp->ep, 
+					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLERR);
+		} 
+	} else {
+		TRACE_EPOLL("UDP: Raising error without a socket!\n");
+	}
+}

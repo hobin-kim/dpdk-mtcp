@@ -38,7 +38,7 @@ struct fragment_ctx
 /*----------------------------------------------------------------------------*/
 struct tcp_ring_buffer
 {
-	u_char* data;			/* buffered data */
+	u_char* data;			/* pointer to the buffered data */
 	u_char* head;			/* pointer to the head */
 
 	uint32_t head_offset;	/* offset for the head (head - data) */
@@ -56,6 +56,17 @@ struct tcp_ring_buffer
 	struct fragment_ctx* fctx;
 };
 /*----------------------------------------------------------------------------*/
+// hobin added
+struct udp_ring_buffer
+{
+	u_char* buffer_start;   /* pointer to teh start of the buffer */
+	u_char* head;			/* pointer to the head of the data */
+	u_char* tail;           /* pointer to the tail of the data */
+
+	int data_len;			/* currently saved data length */
+	int size;				/* total ring buffer size */
+};
+/*----------------------------------------------------------------------------*/
 uint32_t RBGetCurnum(rb_manager_t rbm);
 void RBPrintInfo(struct tcp_ring_buffer* buff);
 void RBPrintStr(struct tcp_ring_buffer* buff);
@@ -67,12 +78,16 @@ struct tcp_ring_buffer* RBInit(rb_manager_t rbm,  uint32_t init_seq);
 void RBFree(rb_manager_t rbm, struct tcp_ring_buffer* buff);
 uint32_t RBIsDanger(rb_manager_t rbm);
 /*----------------------------------------------------------------------------*/
-/* data manupulation functions */
+/* data manupulation functions for mtcp*/
 int RBPut(rb_manager_t rbm, struct tcp_ring_buffer* buff, 
 					void* data, uint32_t len , uint32_t seq);
 size_t RBGet(rb_manager_t rbm, struct tcp_ring_buffer* buff, size_t len);
 size_t RBRemove(rb_manager_t rbm, struct tcp_ring_buffer* buff, 
 					size_t len, int option);
 /*----------------------------------------------------------------------------*/
-
+/* hobin added - data manupulation functions for udp*/ 
+int udp_RBPut(rb_manager_t rbm, struct udp_ring_buffer* buff, 
+					void* data, uint32_t len);
+size_t udp_RBRemove(rb_manager_t rbm, struct udp_ring_buffer* buff, 
+					size_t len, int option);
 #endif
