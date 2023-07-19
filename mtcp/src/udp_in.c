@@ -51,11 +51,15 @@ ProcessUDPPacket(mtcp_manager_t mtcp,
 			return ERROR;
 		}
 	}
+
 	// RBPut to the recv buffer
-	
+	ret = udp_RBPut(mtcp->rbm_rcv, mtcp->udp_rcvbuf, payload, (uint32_t)payloadlen);
+	if (ret < 0) {
+		TRACE_ERROR("Cannot merge payload. reason: %d\n", ret);
+	}
 
 	// raise read event
+	udp_RaiseReadEvent(mtcp);
 
-	// 
-
+	return TRUE;
 };
