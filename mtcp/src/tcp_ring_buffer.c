@@ -462,7 +462,7 @@ udp_RBPut(rb_manager_t rbm, struct udp_ring_buffer* buff,
 {
 
 	// Not implemented: The input length is longer than the data len
-	int buffer_size = buff->size;
+	// int buffer_size = buff->size;
 
 	// ring buffer에 데이터 넣는 코드 작성하기
 	if (buff->tail + len > buff->buffer_start + buff->size) {

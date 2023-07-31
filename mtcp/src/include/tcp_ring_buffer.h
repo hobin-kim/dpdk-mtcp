@@ -86,6 +86,7 @@ size_t RBRemove(rb_manager_t rbm, struct tcp_ring_buffer* buff,
 					size_t len, int option);
 /*----------------------------------------------------------------------------*/
 /* hobin added - data manupulation functions for udp*/ 
+struct udp_ring_buffer* udp_RBInit(rb_manager_t rbm);
 int udp_RBPut(rb_manager_t rbm, struct udp_ring_buffer* buff, 
 					void* data, uint32_t len);
 size_t udp_RBRemove(rb_manager_t rbm, struct udp_ring_buffer* buff, 

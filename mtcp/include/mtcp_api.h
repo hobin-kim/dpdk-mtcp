@@ -26,6 +26,7 @@ enum socket_type
 	MTCP_SOCK_LISTENER, 
 	MTCP_SOCK_EPOLL, 
 	MTCP_SOCK_PIPE, 
+	MTCP_SOCK_DGRAM, // hobin added for UDP
 };
 
 struct mtcp_conf
