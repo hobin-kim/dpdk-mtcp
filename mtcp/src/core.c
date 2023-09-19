@@ -791,8 +791,10 @@ RunMainLoop(struct mtcp_thread_context *ctx)
 
 			for (i = 0; i < recv_cnt; i++) {
 				pktbuf = mtcp->iom->get_rptr(mtcp->ctx, rx_inf, i, &len);
-				if (pktbuf != NULL)
+				if (pktbuf != NULL){
+					// fprintf(stderr, "In core %p\n", mtcp); // hobin added in core
 					ProcessPacket(mtcp, rx_inf, ts, pktbuf, len);
+				} 
 #ifdef NETSTAT
 				else
 					mtcp->nstat.rx_errors[rx_inf]++;

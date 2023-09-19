@@ -38,7 +38,6 @@ int add_tcp_peer(mctx_t mctx, int sockid) {
     if (tcp_peer_set == NULL) {
         // If the linked list is empty, make the new_peer the head of the list
         tcp_peer_set = new_peer;
-		fprintf(stderr, "in add_tcp_peer: %p\n", new_peer->ctx);
     } else {
         // Find the last node in the linked list
         struct tcp_peer* current = tcp_peer_set;
@@ -464,7 +463,7 @@ mtcp_socket(mctx_t mctx, int domain, int type, int protocol)
 
 	if (type == SOCK_STREAM) {
 		type = (int)MTCP_SOCK_STREAM;
-	} else if (type == SOCK_DGRAM) {
+	} else if (type == SOCK_DGRAM) { // hobin added - for udp socket
 		type = (int)MTCP_SOCK_DGRAM;
 	} else {
 		errno = EINVAL;
@@ -472,17 +471,19 @@ mtcp_socket(mctx_t mctx, int domain, int type, int protocol)
 	}
 
 	socket = AllocateSocket(mctx, type, FALSE);
-
 	// hobin added for UDP - but to be modified its location?
 	// udp_socket = socket
-	if (type == SOCK_DGRAM) {
+	if (type == (int)MTCP_SOCK_DGRAM) {
 		mtcp->udp_socket = socket;
+		fprintf(stderr, "mtcp->udp_socket->id ? %d\n",mtcp->udp_socket->id);
 	}
 
 	if (!socket) {
 		errno = ENFILE;
 		return -1;
 	}
+
+	fprintf(stderr, "mtcp address in socket created ? %p\n", mtcp);
 
 	return socket->id;
 }
@@ -1362,10 +1363,103 @@ mtcp_recv(mctx_t mctx, int sockid, char *buf, size_t len, int flags)
         return ret;
 }
 /*----------------------------------------------------------------------------*/
+static inline int
+udp_CopyToUser(mtcp_manager_t mtcp, char *buf, int len)
+{
+	/* Copy data to user buffer and remove it from receiving buffer */
+	fprintf(stderr, "udp_CopyToUser mtcp address: %p\n", mtcp); // hobin added
+	memcpy(buf, mtcp->udp_rcvbuf->head, len);
+	fprintf(stderr, "udp_CopyToUser buffer: %s\n", buf); // hobin added
+	udp_RBRemove(mtcp->rbm_rcv, mtcp->udp_rcvbuf, len, AT_APP);
+	return len;
+}
+/*----------------------------------------------------------------------------*/
+ssize_t
+udp_read(mctx_t mctx, int sockid, char *buf, size_t len, int flags)
+{
+	mtcp_manager_t mtcp;
+	socket_map_t socket;
+	// int event_remaining;
+	int ret;
+	
+	mtcp = GetMTCPManager(mctx);
+        if (!mtcp) {
+		return -1;
+	}
+	
+	if (sockid < 0) {
+		TRACE_API("Socket id %d out of range.\n", sockid);
+		errno = EBADF;
+		return -1;
+	}
+	
+	socket = mtcp->udp_socket;
+
+	if (socket->socktype == MTCP_SOCK_UNUSED) {
+		TRACE_API("Invalid socket id: %d\n", sockid);
+		errno = EBADF;
+		return -1;
+	}
+	
+	if (socket->socktype != MTCP_SOCK_DGRAM) {
+		TRACE_API("Not an end socket. id: %d\n", sockid);
+		errno = ENOTSOCK;
+		return -1;
+	}
+	
+	
+	/* return EAGAIN if no receive buffer */
+	if (socket->opts & MTCP_NONBLOCK) {
+		if (!mtcp->udp_rcvbuf) {
+			errno = EAGAIN;
+			return -1;
+		}
+	}
+	
+
+	switch (flags) {
+	case 0:
+		ret = udp_CopyToUser(mtcp, buf, len);
+		fprintf(stderr, "udp_read case 0 \n"); // hobin added
+		break;
+	default:
+		ret = 0;
+		fprintf(stderr, "udp_read case default\n"); // hobin added
+		return ret;
+	}
+	
+	// event_remaining = FALSE;
+        /* if there are remaining payload, generate EPOLLIN */
+	/* (may due to insufficient user buffer) */
+	// if (socket->epoll & MTCP_EPOLLIN) {
+	// 	if (!(socket->epoll & MTCP_EPOLLET)) {
+	// 		fprintf(stderr, "case1\n"); // hobin added
+	// 		event_remaining = TRUE;
+	// 	}
+	// }
+	
+	// if (event_remaining) {
+	// 	if (socket->epoll) {
+	// 		fprintf(stderr, "case2\n"); // hobin added
+	// 		AddEpollEvent(mtcp->ep, 
+	// 			      USR_SHADOW_EVENT_QUEUE, socket, MTCP_EPOLLIN);
+	// 	} 
+	// }
+	
+	return ret;
+}
+/*----------------------------------------------------------------------------*/
 inline ssize_t
 mtcp_read(mctx_t mctx, int sockid, char *buf, size_t len)
 {
-	return mtcp_recv(mctx, sockid, buf, len, 0);
+	mtcp_manager_t mtcp;
+	mtcp = GetMTCPManager(mctx);
+
+	if (!mtcp->udp_rcvbuf) {
+		return mtcp_recv(mctx, sockid, buf, len, 0);
+	} else {
+		return udp_read(mctx, sockid, buf, len, 0);
+	}
 }
 /*----------------------------------------------------------------------------*/
 int

@@ -106,7 +106,7 @@ int SendUDPPacketStandalone(struct mtcp_manager *mtcp, uint32_t saddr, uint16_t 
 	ip_hdr->time_to_live = IP_DEFTTL;
 	ip_hdr->next_proto_id = IPPROTO_UDP;
 	ip_hdr->src_addr = inet_addr(str_addr1); /* src ip */
-	ip_hdr->dst_addr = inet_addr(str_addr2);; /* dst ip */
+	ip_hdr->dst_addr = inet_addr(str_addr2); /* dst ip */
 	ip_hdr->hdr_checksum = calculate_ip_checksum((uint16_t *)ip_hdr, sizeof(struct ipv4_hdr));
 
 	/* Define UDP header */

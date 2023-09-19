@@ -124,6 +124,9 @@ EqualSID(const void *f1, const void *f2) {
 inline void 
 RaiseReadEvent(mtcp_manager_t mtcp, tcp_stream *stream)
 {
+	fprintf(stderr, "mtcp address in RaiseReadEvent ? %p\n", &mtcp);
+	// fprintf(stderr, "ctx in RaiseReadEvent ? %p\n", mtcp->ctx);
+
 	if (stream->socket) {
 		if (stream->socket->epoll & MTCP_EPOLLIN) {
 			AddEpollEvent(mtcp->ep, 
@@ -687,8 +690,11 @@ DumpStream(mtcp_manager_t mtcp, tcp_stream *stream)
 inline void 
 udp_RaiseReadEvent(mtcp_manager_t mtcp)
 {
+	fprintf(stderr, "mtcp address in udp_RaiseReadEvent ? %p\n", &mtcp);
 	if (mtcp->udp_socket) {
+		fprintf(stderr, "udp_RaiseReadEvent!!\n");
 		if (mtcp->udp_socket->epoll & MTCP_EPOLLIN) {
+			fprintf(stderr, "udp_socket yes!!\n");
 			AddEpollEvent(mtcp->ep, 
 					MTCP_EVENT_QUEUE, mtcp->udp_socket, MTCP_EPOLLIN);
 #if BLOCKING_SUPPORT
@@ -700,6 +706,7 @@ udp_RaiseReadEvent(mtcp_manager_t mtcp)
 #endif
 		}
 	} else {
+		fprintf(stderr, "UDP: Raising read without a socket!\n");
 		TRACE_EPOLL("UDP: Raising read without a socket!\n",);
 	}
 }

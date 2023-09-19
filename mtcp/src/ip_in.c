@@ -56,8 +56,17 @@ ProcessIPv4Packet(mtcp_manager_t mtcp, uint32_t cur_ts,
 			return ProcessTCPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
 		case IPPROTO_ICMP:
 			return ProcessICMPPacket(mtcp, iph, ip_len);
-		case IPPROTO_UDP: // hobin added
-			return ProcessUDPPacket(mtcp, cur_ts, ifidx, iph, ip_len);
+		case IPPROTO_UDP:  ; // hobin added
+			char dst_ip[16];
+			char *expectedIP = "192.168.0.123";
+			intToIPAddress(iph->daddr, dst_ip);
+			if (strcmp(dst_ip, expectedIP) == 0) {
+				fprintf(stderr, "In ip_in %p\n", mtcp); // hobin added 
+				return ProcessUDPPacket(mtcp, cur_ts, ifidx, iph, ip_len);				
+			} else {  
+				mtcp->iom->release_pkt(mtcp->ctx, ifidx, pkt_data, len);
+				return FALSE;
+			}
 		default:
 			/* currently drop other protocols */
 			return FALSE;

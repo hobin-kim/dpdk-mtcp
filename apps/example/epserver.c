@@ -125,12 +125,11 @@ HandleReadEvent(struct thread_context *ctx, int sockid)
 		return rd;
 	}
 
-    /* hobin not understand*/
 	ev.events = MTCP_EPOLLIN | MTCP_EPOLLOUT;
 	ev.data.sockid = sockid;
 	mtcp_epoll_ctl(ctx->mctx, ctx->ep, MTCP_EPOLL_CTL_MOD, sockid, &ev);
 
-	fprintf(stderr, "app1");
+	fprintf(stderr, "Read Event buffer = %s\n", buf); 
 	SendUntilAvailable(ctx, sockid, buf);
 	
 	return rd;
@@ -271,13 +270,14 @@ CreateUDPSocket(struct thread_context *ctx)
 		TRACE_ERROR("Failed to create listening socket!\n");
 		return -1;
 	}
+
 	ret = mtcp_setsock_nonblock(ctx->mctx, udp_socket);
 	if (ret < 0) {
 		TRACE_ERROR("Failed to set socket in nonblocking mode.\n");
 		return -1;
 	}
 
-	/* bind to port 80 */
+	/* bind to port 40000 */
 	saddr.sin_family = AF_INET;
 	saddr.sin_addr.s_addr = INADDR_ANY;
 	saddr.sin_port = htons(40000);
@@ -334,7 +334,7 @@ RunTCPServerThread(void *arg)
 
 	while (!done[core]) {
 		nevents = mtcp_epoll_wait(mctx, ep, events, MAX_EVENTS, -1);
-		
+
 		if (nevents < 0) {
 			if (errno != EINTR)
 				perror("mtcp_epoll_wait");
@@ -365,10 +365,8 @@ RunTCPServerThread(void *arg)
 					perror("mtcp_getsockopt");
 				}
 				CloseConnection(ctx, events[i].data.sockid);
-
 			} else if (events[i].events & MTCP_EPOLLIN) {
 				ret = HandleReadEvent(ctx, events[i].data.sockid);
-
 				if (ret == 0) {
 					/* connection closed by remote host */
 					CloseConnection(ctx, events[i].data.sockid);
@@ -430,16 +428,16 @@ RunUDPServerThread(void *arg)
 	}
 
 	udp_socket = CreateUDPSocket(ctx);
-	
+
 	if (udp_socket < 0) {
 		TRACE_ERROR("Failed to create listening socket.\n");
 		exit(-1);
 	}
 
-
 	// hobin added - events[i].data.sockid must be the udp_socket
 	while (!done[core]) {
 		nevents = mtcp_epoll_wait(mctx, ep, events, MAX_EVENTS, -1);
+		fprintf(stderr, "inside udp done\n");
 		if (nevents < 0) {
 			if (errno != EINTR)
 				perror("mtcp_epoll_wait");
@@ -608,12 +606,32 @@ main(int argc, char **argv)
 		cores[i] = i;
 		done[i] = FALSE;
 		
-		if (pthread_create(&app_thread[i], 
-				   NULL, RunTCPServerThread, (void *)&cores[i])) {
-			perror("pthread_create");
-			TRACE_CONFIG("Failed to create server thread.\n");
-				exit(EXIT_FAILURE);
+		// if (pthread_create(&app_thread[i], 
+		// 		   NULL, RunTCPServerThread, (void *)&cores[i])) {
+		// 	perror("pthread_create");
+		// 	TRACE_CONFIG("Failed to create server thread.\n");
+		// 		exit(EXIT_FAILURE);
+		// } 
+
+		// hobin added
+		// core0,2는 TCP thread 돌리고, core1,4은 UDP thread 돌리기
+		if (i%2==0) {
+			if (pthread_create(&app_thread[i], 
+					NULL, RunTCPServerThread, (void *)&cores[i])) {
+				perror("pthread_create");
+				TRACE_CONFIG("Failed to create server thread.\n");
+					exit(EXIT_FAILURE);
+			} 
+		} else {
+			if (pthread_create(&app_thread[i], 
+					NULL, RunUDPServerThread, (void *)&cores[i])) {
+				perror("pthread_create");
+				TRACE_CONFIG("Failed to create server thread.\n");
+					exit(EXIT_FAILURE);
+			} 
 		}
+		// hobin added
+
 		if (process_cpu != -1)
 			break;
 	}
