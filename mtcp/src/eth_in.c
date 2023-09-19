@@ -34,7 +34,7 @@ ProcessPacket(mtcp_manager_t mtcp, const int ifidx,
 
 	if (ip_proto == ETH_P_IP) {
 		/* process ipv4 packet */
-		// fprintf(stderr, "In eth_in %p\n", mtcp); // hobin added 
+		fprintf(stderr, "In eth_in %p\n", mtcp); // hobin added 
 		ret = ProcessIPv4Packet(mtcp, cur_ts, ifidx, pkt_data, len);
 
 	} else if (ip_proto == ETH_P_ARP) {

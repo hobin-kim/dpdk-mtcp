@@ -124,7 +124,7 @@ EqualSID(const void *f1, const void *f2) {
 inline void 
 RaiseReadEvent(mtcp_manager_t mtcp, tcp_stream *stream)
 {
-	fprintf(stderr, "mtcp address in RaiseReadEvent ? %p\n", &mtcp);
+	fprintf(stderr, "mtcp address in RaiseReadEvent ? %p\n", mtcp);
 	// fprintf(stderr, "ctx in RaiseReadEvent ? %p\n", mtcp->ctx);
 
 	if (stream->socket) {
@@ -690,7 +690,7 @@ DumpStream(mtcp_manager_t mtcp, tcp_stream *stream)
 inline void 
 udp_RaiseReadEvent(mtcp_manager_t mtcp)
 {
-	fprintf(stderr, "mtcp address in udp_RaiseReadEvent ? %p\n", &mtcp);
+	fprintf(stderr, "mtcp address in udp_RaiseReadEvent ? %p\n", mtcp);
 	if (mtcp->udp_socket) {
 		fprintf(stderr, "udp_RaiseReadEvent!!\n");
 		if (mtcp->udp_socket->epoll & MTCP_EPOLLIN) {
